@@ -54,11 +54,11 @@ webSocketServer.on( 'connection', function ( socket ) {
 
 			case 'signal' : 
 
+				console.log( message );
+
 				sendMessage( message.id, {
-					type: 'signal', 
-					id: socket.id, 
-					sdp: message.sdp, 
-					ice: message.ice
+					...message, 
+					id: socket.id
 				} );
 
 				break;

@@ -21,9 +21,17 @@
 			justify-content: center;
 			align-items: center;
 		}
+
+		.grid > *:first-child {
+			margin-left: 0;
+		}
+
+		.grid > * {
+			margin-left: 0.5em;
+		}
 		
 		video {
-			width: 200px;
+			width: 300px;
 		}
 
 		.my-video {
@@ -92,7 +100,7 @@
 
 		}
 
-		function createConnection( id ) {
+		function createConnection( id, isCaller ) {
 
 			const peerConnection = new RTCPeerConnection( config );
 			peerConnections[ id ] = peerConnection;
@@ -104,7 +112,7 @@
 					sendMessage( {
 						type: 'signal', 
 						id: id, 
-						ice: event.candiate
+						ice: event.candidate
 					} );
 
 				}
@@ -115,10 +123,14 @@
 
 				console.log( 'got remote stream' );
 
+				console.log( event.stream );
+
 				const videoEl = document.createElement( 'video' );
 				videoEl.srcObject = event.stream;
+				videoEl.autoplay = true; 
+				videoEl.muted = true;
+				videoEl.playsinline = true;
 				videoEl.setAttribute( 'data-id', id );
-				videoEl.play();
 
 				document.querySelector( '.grid' ).appendChild( videoEl );
 
@@ -126,31 +138,35 @@
 
 			peerConnection.addStream( myStream );
 
-			peerConnection.createOffer()
-				.then( function ( sdp ) {
+			if ( isCaller ) {
 
-					peerConnection.setLocalDescription( sdp )
-						.then( function () {
+				peerConnection.createOffer()
+					.then( function ( sdp ) {
 
-							sendMessage( {
-								type: 'signal', 
-								id: id, 
-								sdp: peerConnection.localDescription
+						peerConnection.setLocalDescription( sdp )
+							.then( function () {
+
+								sendMessage( {
+									type: 'signal', 
+									id: id, 
+									sdp: peerConnection.localDescription
+								} );
+
+							} )
+							.catch( function ( error ) {
+
+								console.log( 'Error while creating offer. ' + error );
+
 							} );
 
-						} )
-						.catch( function ( error ) {
+					} )
+					.catch( function ( error ) {
 
-							console.log( 'Error while creating offer. ' + error );
+						console.error( 'Error creating offer. ' + error )
 
-						} );
+					} );
 
-				} )
-				.catch( function ( error ) {
-
-					console.error( 'Error creating offer. ' + error )
-
-				} );
+				}
 
 		}
 
@@ -175,7 +191,7 @@
 				case 'call' : 
 
 					console.log( 'Call received!', message.id );
-					createConnection( message.id );
+					createConnection( message.id, true );
 
 					break;
 
@@ -225,23 +241,21 @@
 
 								}
 
-								if ( message.ice ) {
+							} )
+							.catch( function ( error ) {
 
-									console.log( 'ice received!' );
+								console.error( error );
 
-									peerConnection.addIceCandidate( new RTCIceCandidate( message.ice ) )
-										.then( function () {
+							} )
 
-											console.log( 'SIGNAL: Ice set!' );
+					} else if ( message.ice ) {
 
-										} )
-										.catch( function ( error ) {
+						console.log( 'ice received!' );
 
-											console.error( error );
+						peerConnection.addIceCandidate( new RTCIceCandidate( message.ice ) )
+							.then( function () {
 
-										} )
-
-								}
+								console.log( 'SIGNAL: Ice set!' );
 
 							} )
 							.catch( function ( error ) {
