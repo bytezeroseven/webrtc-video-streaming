@@ -7,19 +7,28 @@
 
 		body {
 			margin: 0;
-			background: #111;
+			font-family: monospace;
+			user-select: none;
 		}
 
-		.grid {
+		.column {
 			position: absolute;
 			left: 0;
 			top: 0;
 			width: 100%;
 			height: 100%;
 			display: flex;
+			flex-direction: column;
+		}
+
+		.grid {
+			width: 100%;
+			height: 100%;
+			display: flex;
 			flex-direction: row;
 			justify-content: center;
 			align-items: center;
+			background: #111;
 		}
 
 		.grid > *:first-child {
@@ -27,24 +36,140 @@
 		}
 
 		.grid > * {
+			margin-left: 1em;
+		}
+
+		.buttons {
+			width: 100%;
+			padding: 1em 0;
+			background: #000;
+			display: flex;
+			flex-direction: row;
+			justify-content: center;
+			align-items: center;
+		}
+
+		.buttons > *:first-child {
+			margin-left: 0;
+		}
+
+		.buttons > * {
 			margin-left: 0.5em;
+		}
+
+		.button {
+			background: #e91e63;
+			color: #fff;
+			padding: 0.75em;
+			font-size: 1.5em;
+			border-radius: 0.25em;
+			cursor: pointer;
+		}
+
+		.disabled {
+			color: #000;
+			background: #fff;
 		}
 		
 		video {
 			width: 300px;
+			border-radius: 5px;
+			border: 2px solid #000;
 		}
 
 		.my-video {
-			border: 1px solid red;
+			border-color: red;
+		}
+
+		.loader {
+			position: absolute;
+			left: 0;
+			top: 0;
+			width: 100%;
+			height: 100%;
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			background: #111;
+		}
+
+		.spinner {
+			width: 100px;
+			height: 100px;
+			border-top: 10px solid #fff;
+			border-radius: 50%;
+			animation: spin 0.5s infinite;
+		}
+
+		@keyframes spin {
+
+			from {
+				transform: rotate(0);
+			}
+
+			to {
+				transform: rotate(360deg);
+			}
+
 		}
 
 	</style>
 </head>
 <body>
-	<div class="grid">
-		<video class="my-video"></video>
+	<div class="column">
+		<div class="grid">
+			<video class="my-video" muted></video>
+		</div>
+		<div class="buttons">
+			<div class="button video-toggle">Video</div>
+			<div class="button audio-toggle">Audio</div>
+		</div>
+	</div>
+	<div class="loader">
+		<div class="spinner"></div>
 	</div>
 	<script>
+
+		const gridEl = document.querySelector( '.grid' )
+		const myVideoEl = document.querySelector( '.my-video' );
+		const loaderEl = document.querySelector( '.loader' );
+
+		const videoToggleEl = document.querySelector( '.video-toggle' );
+		const audioToggleEl = document.querySelector( '.audio-toggle' );
+
+		videoToggleEl.onclick = function () {
+
+			const track = myStream.getVideoTracks()[ 0 ];
+			track.enabled = ! track.enabled;
+
+			if ( ! track.enabled ) {
+
+				this.classList.add( 'disabled' );
+
+			} else {
+
+				this.classList.remove( 'disabled' );
+
+			}
+
+		}
+
+		audioToggleEl.onclick = function () {
+
+			const track = myStream.getAudioTracks()[ 0 ];
+			track.enabled = ! track.enabled;
+
+			if ( ! track.enabled ) {
+
+				this.classList.add( 'disabled' );
+
+			} else {
+
+				this.classList.remove( 'disabled' );
+
+			}
+
+		}
 
 		const peerConnections = {};
 
@@ -71,21 +196,10 @@
 
 				myStream = stream;
 
-				const myVideoEl = document.querySelector( '.my-video' );
 				myVideoEl.srcObject = myStream;
 				myVideoEl.play();
 
-				socket = new WebSocket( window.location.href.replace( 'http', 'ws' ) );
-
-				socket.addEventListener( 'open', onOpen );
-				socket.addEventListener( 'message', onMessage );
-				socket.addEventListener( 'close', onClose );
-
-				window.onunload = window.onbeforeunload = function () {
-
-					socket.close();
-
-				}
+				connect();
 
 			} )
 			.catch( function ( error ) {
@@ -94,9 +208,35 @@
 
 			} );
 
+		function connect() {
+
+			if ( socket ) {
+
+				socket.removeEventListener( 'open', onOpen );
+				socket.removeEventListener( 'message', onMessage );
+				socket.removeEventListener( 'close', onClose );
+
+				try {
+
+					socket.close();
+
+				} catch ( error ) {}
+
+			}
+
+			socket = new WebSocket( window.location.href.replace( 'http', 'ws' ) );
+
+			socket.addEventListener( 'open', onOpen );
+			socket.addEventListener( 'message', onMessage );
+			socket.addEventListener( 'close', onClose );
+
+		}
+
 		function onOpen() {
 
 			console.log( 'Connected!' );
+
+			loaderEl.style.display = 'none';
 
 		}
 
@@ -127,12 +267,11 @@
 
 				const videoEl = document.createElement( 'video' );
 				videoEl.srcObject = event.stream;
-				videoEl.autoplay = true; 
-				videoEl.muted = true;
-				videoEl.playsinline = true;
+				videoEl.autoplay = 'true';
+				videoEl.play();
 				videoEl.setAttribute( 'data-id', id );
 
-				document.querySelector( '.grid' ).appendChild( videoEl );
+				gridEl.appendChild( videoEl );
 
 			}
 
@@ -287,6 +426,33 @@
 		function onClose() {
 
 			console.log( 'Disconnected.' );
+
+			loaderEl.style.display = '';
+
+			for ( let id in peerConnections ) {
+
+				delete peerConnections[ id ];
+
+			}
+
+			if ( myStream ) {
+
+				connect();
+
+				for ( let i = 0; i < gridEl.children.length; i ++ ) {
+
+					const childEl = gridEl.children[ i ];
+
+					if ( childEl !== myVideoEl ) {
+
+						gridEl.removeChild( childEl );
+
+					}
+
+				}
+
+			}
+
 
 		}
 
