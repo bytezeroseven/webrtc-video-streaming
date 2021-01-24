@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Video Streaming Test</title>
+	<style>
+
+		body {
+			margin: 0;
+			background: #111;
+		}
+
+		.grid {
+			position: absolute;
+			left: 0;
+			top: 0;
+			width: 100%;
+			height: 100%;
+			display: flex;
+			flex-direction: row;
+			justify-content: center;
+			align-items: center;
+		}
+		
+		video {
+			width: 200px;
+		}
+
+		.my-video {
+			border: 1px solid red;
+		}
+
+	</style>
+</head>
+<body>
+	<div class="grid">
+		<video class="my-video"></video>
+	</div>
+	<script>
+
+		const peerConnections = {};
+
+		const config = {
+			iceServers: [
+				{
+					urls: [ 'stun:stun.l.google.com:19302' ]
+				}
+			]
+		};
+
+		const constraints = {
+			video: true, 
+			audio: true
+		};
+
+		let myStream;
+		let socket;
+
+		navigator.mediaDevices.getUserMedia( constraints )
+			.then( function ( stream ) {
+
+				console.log( 'Got my stream!', stream );
+
+				myStream = stream;
+
+				const myVideoEl = document.querySelector( '.my-video' );
+				myVideoEl.srcObject = myStream;
+				myVideoEl.play();
+
+				socket = new WebSocket( window.location.href.replace( 'http', 'ws' ) );
+
+				socket.addEventListener( 'open', onOpen );
+				socket.addEventListener( 'message', onMessage );
+				socket.addEventListener( 'close', onClose );
+
+				window.onunload = window.onbeforeunload = function () {
+
+					socket.close();
+
+				}
+
+			} )
+			.catch( function ( error ) {
+
+				console.error( 'Error getting stream. ' + error );
+
+			} );
+
+		function onOpen() {
+
+			console.log( 'Connected!' );
+
+		}
+
+		function createConnection( id ) {
+
+			const peerConnection = new RTCPeerConnection( config );
+			peerConnections[ id ] = peerConnection;
+
+			peerConnection.onicecandidate = function ( event ) {
+
+				if ( event.candidate ) {
+
+					sendMessage( {
+						type: 'signal', 
+						id: id, 
+						ice: event.candiate
+					} );
+
+				}
+
+			}
+
+			peerConnection.onaddstream = function ( event ) {
+
+				console.log( 'got remote stream' );
+
+				const videoEl = document.createElement( 'video' );
+				videoEl.srcObject = event.stream;
+				videoEl.setAttribute( 'data-id', id );
+				videoEl.play();
+
+				document.querySelector( '.grid' ).appendChild( videoEl );
+
+			}
+
+			peerConnection.addStream( myStream );
+
+			peerConnection.createOffer()
+				.then( function ( sdp ) {
+
+					peerConnection.setLocalDescription( sdp )
+						.then( function () {
+
+							sendMessage( {
+								type: 'signal', 
+								id: id, 
+								sdp: peerConnection.localDescription
+							} );
+
+						} )
+						.catch( function ( error ) {
+
+							console.log( 'Error while creating offer. ' + error );
+
+						} );
+
+				} )
+				.catch( function ( error ) {
+
+					console.error( 'Error creating offer. ' + error )
+
+				} );
+
+		}
+
+		function onMessage( event ) {
+
+			const message = JSON.parse( event.data );
+
+			switch ( message.type ) {
+
+				case 'new-connection' : 
+
+					console.log( 'New connection!', message.id );
+					createConnection( message.id );
+
+					sendMessage( {
+						type: 'call', 
+						id: message.id
+					} );
+
+					break;
+
+				case 'call' : 
+
+					console.log( 'Call received!', message.id );
+					createConnection( message.id );
+
+					break;
+
+				case 'signal' : 
+
+					const peerConnection = peerConnections[ message.id ];
+
+					if ( message.sdp ) {
+
+						console.log( 'sdp received!' );
+
+						peerConnection
+							.setRemoteDescription( new RTCSessionDescription( message.sdp ) )
+							.then( function () { 
+
+								console.log( 'SIGNAL: Remote description set!' );
+
+								if ( message.sdp.type === 'offer' ) {
+
+									peerConnection.createAnswer()
+										.then( function ( description ) {
+
+											peerConnection.setLocalDescription( description )
+												.then( function () {
+
+													console.log( 'SIGNAL: Local description set!' );
+
+													sendMessage( {
+														type: 'signal', 
+														id: message.id, 
+														sdp: peerConnection.localDescription
+													} );
+
+												} )
+												.catch( function ( error ) {
+
+													console.error( error );
+
+												} )
+
+										} )
+										.catch( function ( error ) {
+
+											console.error( error );
+
+										} )
+
+								}
+
+								if ( message.ice ) {
+
+									console.log( 'ice received!' );
+
+									peerConnection.addIceCandidate( new RTCIceCandidate( message.ice ) )
+										.then( function () {
+
+											console.log( 'SIGNAL: Ice set!' );
+
+										} )
+										.catch( function ( error ) {
+
+											console.error( error );
+
+										} )
+
+								}
+
+							} )
+							.catch( function ( error ) {
+
+								console.error( error );
+
+							} )
+
+					}
+
+					break;
+
+				case 'user-disconnected' : 
+
+					const el = document.querySelector( '[data-id="' + message.id + '"]' );
+
+					if ( el ) {
+
+						el.parentNode.removeChild( el );
+
+					}
+
+					break;
+					
+			}
+
+		}
+
+		function onClose() {
+
+			console.log( 'Disconnected.' );
+
+		}
+
+		function sendMessage( message ) {
+
+			socket.send( JSON.stringify( message ) );
+
+		}
+
+	</script>
+</body>
+</html>
